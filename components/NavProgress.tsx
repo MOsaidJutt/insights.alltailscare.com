@@ -9,8 +9,16 @@ export function NavProgress() {
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const [pending, setPending] = useState(false);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => setPending(false), [pathname, search]);
+
+  // Wait briefly so cached views, which load almost instantly, don't flash the dialog.
+  useEffect(() => {
+    if (!pending) return setVisible(false);
+    const t = setTimeout(() => setVisible(true), 150);
+    return () => clearTimeout(t);
+  }, [pending]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -26,15 +34,15 @@ export function NavProgress() {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
-  if (!pending) return null;
+  if (!visible) return null;
   return (
-    <div className="nav-progress" role="status" aria-live="polite">
+    <div className="nav-progress" role="alertdialog" aria-modal="true" aria-labelledby="nav-progress-title" aria-live="polite">
       <div className="nav-bar" />
       <div className="nav-dialog">
         <span className="spinner" aria-hidden="true" />
         <div>
-          <b>Loading the latest numbers</b>
-          <span>Fetching from Google Analytics. First load of a view takes a few seconds, then it’s cached for an hour.</span>
+          <b id="nav-progress-title">Loading the latest numbers</b>
+          <span>Fetching from Google Analytics. This takes a few seconds the first time.</span>
         </div>
       </div>
     </div>
