@@ -157,3 +157,20 @@ small { font-size: 11.5px; }
   body { background: #fff; color: #000; }
   .card, .kpi, .highlights { break-inside: avoid; }
 }
+
+/* Loading dialog while a view fetches from Google Analytics */
+.nav-progress { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+.nav-bar { position: absolute; top: 0; left: 0; height: 3px; width: 100%; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: navbar 1.1s linear infinite; }
+@keyframes navbar { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+.nav-dialog {
+  position: absolute; left: 50%; bottom: max(24px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  width: min(440px, calc(100% - 32px)); display: flex; gap: 12px; align-items: flex-start;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+.nav-dialog b { display: block; font-size: 14px; }
+.nav-dialog span:not(.spinner) { display: block; font-size: 12.5px; color: var(--muted); }
+.spinner { flex: none; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; border: 2.5px solid var(--mint); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .nav-bar, .spinner { animation-duration: 3s; } }
+@media print { .nav-progress { display: none; } }

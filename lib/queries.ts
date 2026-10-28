@@ -79,12 +79,24 @@ export type FunnelStep = Step & { total: number; ios: number; android: number };
 
 // New-user funnel: only people whose first session falls inside the period, so
 // "Reached home" isn't inflated by existing users.
+// GA runs 10 requests per property at a time, so every exact-name step shares one query
+// and the prefix steps get one each (2 queries instead of 16).
 export async function getFunnel(p: PeriodKey, os: Os): Promise<FunnelStep[]> {
   const P = PERIODS[p];
   const from = concreteDate(P.cur.startDate);
   const to = concreteDate(P.cur.endDate);
-  const reports = await Promise.all(
-    ONBOARDING_FUNNEL.map((s) =>
+  const newUsers = (rows: Report["rows"], dateCol: number) => rows.filter((r) => r.d[dateCol] >= from && r.d[dateCol] <= to);
+  const exactEvents = ONBOARDING_FUNNEL.flatMap((s) => s.events ?? []);
+  const prefixSteps = ONBOARDING_FUNNEL.filter((s) => s.prefixes);
+  const [byEvent, ...byPrefix] = await Promise.all([
+    runReport({
+      dateRanges: [P.cur],
+      dimensions: names("eventName", "platform", "firstSessionDate"),
+      metrics: names("totalUsers"),
+      dimensionFilter: scope(os, inList(exactEvents)),
+      limit: 5000,
+    }),
+    ...prefixSteps.map((s) =>
       runReport({
         dateRanges: [P.cur],
         dimensions: names("platform", "firstSessionDate"),
@@ -93,11 +105,15 @@ export async function getFunnel(p: PeriodKey, os: Os): Promise<FunnelStep[]> {
         limit: 1000,
       }),
     ),
-  );
-  return ONBOARDING_FUNNEL.map((s, i) => {
-    const rows = reports[i].rows.filter((r) => r.d[1] >= from && r.d[1] <= to);
-    const on = (platform: string) => rows.filter((x) => x.d[0] === platform).reduce((a, x) => a + x.m[0], 0);
-    return { ...s, total: rows.reduce((a, x) => a + x.m[0], 0), ios: on("iOS"), android: on("Android") };
+  ]);
+  const eventRows = newUsers(byEvent.rows, 2);
+  return ONBOARDING_FUNNEL.map((s) => {
+    // Rows as [platform, users]. Sign-up sums three events; people rarely finish more than one method.
+    const rows: [string, number][] = s.prefixes
+      ? newUsers(byPrefix[prefixSteps.indexOf(s)].rows, 1).map((r) => [r.d[0], r.m[0]])
+      : eventRows.filter((r) => s.events!.includes(r.d[0])).map((r) => [r.d[1], r.m[0]]);
+    const on = (platform: string) => rows.filter(([pl]) => pl === platform).reduce((a, [, n]) => a + n, 0);
+    return { ...s, total: rows.reduce((a, [, n]) => a + n, 0), ios: on("iOS"), android: on("Android") };
   });
 }
 
