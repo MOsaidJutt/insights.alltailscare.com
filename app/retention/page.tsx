@@ -1,12 +1,12 @@
-import { Card, Head, Shell } from "@/components/Shell";
+import { Card, Head, Shell, osLabel } from "@/components/Shell";
 import { LineChart } from "@/components/charts";
 import { getRetention } from "@/lib/queries";
-import { periodFrom, shortDate } from "@/lib/periods";
+import { readParams, shortDate, type SearchParams } from "@/lib/periods";
 import { fmtN, fmtPct } from "@/lib/format";
 
-export default async function Retention({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const period = periodFrom((await searchParams).p);
-  const cohorts = await getRetention();
+export default async function Retention({ searchParams }: { searchParams: SearchParams }) {
+  const { period, os } = await readParams(searchParams);
+  const cohorts = await getRetention(os);
   const weeks = cohorts[0]?.weeks.length ?? 0;
   const avg = Array.from({ length: weeks }, (_, n) => {
     const vals = cohorts.filter((c) => c.size > 0 && c.weeks[n] !== null).map((c) => c.weeks[n] as number);
@@ -14,8 +14,8 @@ export default async function Retention({ searchParams }: { searchParams: Promis
   }).filter((v): v is number => v !== null);
 
   return (
-    <Shell active="/retention" period={period} showPeriod={false}>
-      <Head eyebrow="Grouped by the week people installed" title="Do users come back?" />
+    <Shell active="/retention" period={period} os={os} showPeriod={false}>
+      <Head eyebrow={`Grouped by install week, Sunday to Saturday${osLabel(os)}`} title="Do users come back?" />
 
       <div className="grid g2">
         <Card title="Average retention curve" src="Share of each week’s new users still active">
@@ -26,7 +26,7 @@ export default async function Retention({ searchParams }: { searchParams: Promis
           />
         </Card>
 
-        <Card title="By install week" src="Google Analytics cohorts">
+        <Card title="By install week" src="Google Analytics cohorts" csv>
           <div className="tbl">
             <table className="heat">
               <thead>

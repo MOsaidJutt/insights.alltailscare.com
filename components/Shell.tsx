@@ -1,27 +1,46 @@
 import Link from "next/link";
-import { PERIODS, type PeriodKey } from "@/lib/periods";
+import { PERIODS, type Os, type PeriodKey } from "@/lib/periods";
+import { CsvButton, PageTools } from "./Tools";
 
 const TABS = [
-  ["/", "User growth"],
+  ["/", "Overview"],
   ["/funnel", "Funnel"],
-  ["/acquisition", "Where users come from"],
+  ["/acquisition", "Acquisition"],
   ["/retention", "Retention"],
   ["/engagement", "Engagement"],
   ["/audience", "Audience"],
+  ["/links", "Tracked links"],
 ] as const;
+
+const PLATFORMS: [Os, string][] = [
+  ["all", "All"],
+  ["ios", "iPhone"],
+  ["android", "Android"],
+];
+
+function href(path: string, period: PeriodKey, os: Os) {
+  const q = new URLSearchParams();
+  if (period !== "monthly") q.set("p", period);
+  if (os !== "all") q.set("os", os);
+  const s = q.toString();
+  return s ? `${path}?${s}` : path;
+}
 
 export function Shell({
   active,
   period,
+  os = "all",
   showPeriod = true,
+  showPlatform = true,
   children,
 }: {
   active: string;
   period: PeriodKey;
+  os?: Os;
   showPeriod?: boolean;
+  showPlatform?: boolean;
   children: React.ReactNode;
 }) {
-  const q = period === "monthly" ? "" : `?p=${period}`;
   return (
     <>
       <header className="top">
@@ -38,27 +57,35 @@ export function Shell({
             </div>
             <div>
               <b>AllTails Care Insights</b>
-              <span>Google Analytics · refreshes every hour</span>
+              <span>Google Analytics · Pacific time · refreshes every hour</span>
             </div>
           </div>
-          {showPeriod && (
-            <nav className="seg" aria-label="Report period">
-              {(Object.keys(PERIODS) as PeriodKey[]).map((k) => (
-                <Link
-                  key={k}
-                  href={`${active}${k === "monthly" ? "" : `?p=${k}`}`}
-                  aria-current={k === period ? "true" : undefined}
-                >
-                  {PERIODS[k].label}
-                </Link>
-              ))}
-            </nav>
-          )}
+          <div className="controls">
+            {showPlatform && (
+              <nav className="seg" aria-label="Platform">
+                {PLATFORMS.map(([k, label]) => (
+                  <Link key={k} href={href(active, period, k)} aria-current={k === os ? "true" : undefined}>
+                    {label}
+                  </Link>
+                ))}
+              </nav>
+            )}
+            {showPeriod && (
+              <nav className="seg" aria-label="Report period">
+                {(Object.keys(PERIODS) as PeriodKey[]).map((k) => (
+                  <Link key={k} href={href(active, k, os)} aria-current={k === period ? "true" : undefined}>
+                    {PERIODS[k].label}
+                  </Link>
+                ))}
+              </nav>
+            )}
+            <PageTools />
+          </div>
         </div>
         <div className="wrap tabs-scroll">
           <nav className="tabs" aria-label="Sections">
-            {TABS.map(([href, label]) => (
-              <Link key={href} href={`${href}${q}`} aria-current={href === active ? "page" : undefined}>
+            {TABS.map(([path, label]) => (
+              <Link key={path} href={href(path, period, os)} aria-current={path === active ? "page" : undefined}>
                 {label}
               </Link>
             ))}
@@ -66,7 +93,9 @@ export function Shell({
         </div>
       </header>
       <main className="wrap">{children}</main>
-      <footer className="wrap">Data: Google Analytics 4 (Firebase), property 458080625. Periods end yesterday.</footer>
+      <footer className="wrap">
+        Data: Google Analytics 4 (Firebase), property 458080625. Periods end yesterday, Pacific time. Weeks start on Sunday.
+      </footer>
     </>
   );
 }
@@ -83,14 +112,29 @@ export function Head({ eyebrow, title, children }: { eyebrow: string; title: str
   );
 }
 
-export function Card({ title, src, children }: { title: string; src?: string; children: React.ReactNode }) {
+export function Card({
+  title,
+  src,
+  csv = false,
+  children,
+}: {
+  title: string;
+  src?: string;
+  csv?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <section className="card">
       <div className="card-h">
         <h2>{title}</h2>
-        {src && <span className="src">{src}</span>}
+        <div className="card-tools">
+          {src && <span className="src">{src}</span>}
+          {csv && <CsvButton name={title} />}
+        </div>
       </div>
       {children}
     </section>
   );
 }
+
+export const osLabel = (os: Os) => (os === "ios" ? " · iPhone only" : os === "android" ? " · Android only" : "");

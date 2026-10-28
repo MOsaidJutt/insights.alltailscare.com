@@ -1,7 +1,7 @@
 // Event names exactly as the AllTails app sends them to Firebase.
 // GA cuts names at 40 characters, so some matches below use prefixes.
 
-export type Step = { label: string; events: string[] };
+export type Step = { label: string; screen: string; events?: string[]; prefixes?: string[] };
 
 export const SIGNUP_COMPLETED = [
   "auth_register_apple_completed",
@@ -9,22 +9,25 @@ export const SIGNUP_COMPLETED = [
   "auth_register_email_completed",
 ];
 
-// Onboarding funnel as described by the founder:
-// install > open > onboarding steps > paywall > create user.
-// TODO: add the "First Open" step after sign-up once the founder confirms what it means.
+// Onboarding funnel in screen order, taken from the founder's screenshots (Oct 2026 build).
+// OB_question_5's screen still needs confirming with the developer.
 export const ONBOARDING_FUNNEL: Step[] = [
-  { label: "Opened the app", events: ["first_open"] },
-  { label: "Splash screen", events: ["splash_screen"] },
-  { label: "Welcome screen", events: ["welcome_screen"] },
-  { label: "Question 1", events: ["OB_question_1"] },
-  { label: "Question 2", events: ["OB_question_2"] },
-  { label: "Question 3", events: ["OB_question_3"] },
-  { label: "Question 4", events: ["OB_question_4"] },
-  { label: "Question 5", events: ["OB_question_5"] },
-  { label: "Pet details", events: ["pet_breed"] },
-  { label: "Personalising screen", events: ["persoalized_loading"] },
-  { label: "Saw the paywall", events: ["paywall_viewed_onboarding"] },
-  { label: "Created an account", events: SIGNUP_COMPLETED },
+  { label: "Opened the app", screen: "First launch", events: ["first_open"] },
+  { label: "Splash screen", screen: "AllTails logo", events: ["splash_screen"] },
+  { label: "Welcome", screen: "“Caring for your pet just got easier”", events: ["welcome_screen"] },
+  { label: "Pet type", screen: "“Who are we caring for?”", events: ["OB_question_1"] },
+  { label: "Gender", screen: "“Is [pet] male or female?”", events: ["OB_question_2"] },
+  { label: "Age", screen: "“How old is [pet]?”", events: ["OB_question_3"] },
+  { label: "Photo", screen: "“Add a photo of [pet]”", events: ["OB_question_4"] },
+  { label: "Question 5", screen: "Screen to confirm with the developer", events: ["OB_question_5"] },
+  { label: "Breed", screen: "“What breed is [pet]?”", events: ["pet_breed"] },
+  { label: "Spayed", screen: "“Is [pet] spayed?”", events: ["pet_sprayed"] },
+  { label: "Help with", screen: "“What do you want help with?”", events: ["pet_help"] },
+  { label: "Personalising", screen: "Loading the personal plan", events: ["persoalized_loading"] },
+  { label: "Care summary", screen: "“Handle all of [pet]’s care, easily”", events: ["pet_care"] },
+  { label: "Paywall", screen: "“Manage & share [pet]’s care”", events: ["paywall_viewed_onboarding"] },
+  { label: "Created an account", screen: "Google, Apple or email sign-up", events: SIGNUP_COMPLETED },
+  { label: "Reached home", screen: "Used Home or the bottom menu (includes people who logged in)", prefixes: ["home_", "bottom_nav_"] },
 ];
 
 // `key` is a fragment that survives the 40-character cut in every event for that placement.

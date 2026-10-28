@@ -1,28 +1,29 @@
-import { Card, Head, Shell } from "@/components/Shell";
+import { Card, Head, Shell, osLabel } from "@/components/Shell";
 import { getConversion, getFunnel } from "@/lib/queries";
-import { PERIODS, periodFrom } from "@/lib/periods";
+import { PERIODS, readParams, type SearchParams } from "@/lib/periods";
 import { fmtN, fmtPct, share } from "@/lib/format";
 
-export default async function Funnel({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const period = periodFrom((await searchParams).p);
+export default async function Funnel({ searchParams }: { searchParams: SearchParams }) {
+  const { period, os } = await readParams(searchParams);
   const P = PERIODS[period];
-  const [steps, conv] = await Promise.all([getFunnel(period), getConversion(period)]);
+  const [steps, conv] = await Promise.all([getFunnel(period, os), getConversion(period, os)]);
   const top = steps[0].total || 1;
   const lost = steps.map((s, i) => (i ? steps[i - 1].total - s.total : 0));
   const worst = lost.indexOf(Math.max(...lost));
+  const account = steps.find((s) => s.label === "Created an account")!;
 
   return (
-    <Shell active="/funnel" period={period}>
-      <Head eyebrow={P.span} title="Where users drop off" />
+    <Shell active="/funnel" period={period} os={os}>
+      <Head eyebrow={`${P.span}${osLabel(os)}`} title="Where new users drop off" />
 
-      <Card title="Onboarding: from first open to account" src="Unique users who reached each step">
+      <Card title="Onboarding: from first open to the home screen" src="People whose first visit was in this period" csv>
         <div className="funnel">
           {steps.map((s, i) => (
             <div key={s.label} className={`fstep${i === worst && lost[i] > 0 ? " worst" : ""}`}>
-              <span>
+              <span title={(s.events ?? s.prefixes ?? []).join(", ")}>
                 {s.label}
                 <br />
-                <code>{s.events.length > 1 ? "sign-up completed (Apple, Google, email)" : s.events[0]}</code>
+                <small className="muted">{s.screen}</small>
               </span>
               <div className="fb">
                 <i style={{ width: `${Math.max((s.total / top) * 100, 6)}%` }}>{fmtN(s.total)}</i>
@@ -37,15 +38,24 @@ export default async function Funnel({ searchParams }: { searchParams: Promise<{
             </div>
           ))}
         </div>
+        {/* Hidden table so the CSV button can export the funnel. */}
+        <table hidden>
+          <tbody>
+            <tr><th>Step</th><th>Screen</th><th>People</th><th>iPhone</th><th>Android</th></tr>
+            {steps.map((s) => (
+              <tr key={s.label}><td>{s.label}</td><td>{s.screen}</td><td>{s.total}</td><td>{s.ios}</td><td>{s.android}</td></tr>
+            ))}
+          </tbody>
+        </table>
         <p className="note">
-          Overall, <b>{fmtPct(share(steps[steps.length - 1].total, steps[0].total))}</b> of people who open the app for the first
-          time create an account. Counts are people who triggered each step in the period, so a step can be slightly higher than
-          the one before it.
+          <b>{fmtPct(share(account.total, steps[0].total))}</b> of new users create an account and{" "}
+          <b>{fmtPct(share(steps[steps.length - 1].total, steps[0].total))}</b> reach the home screen. A step can be slightly
+          higher than the one before it when people go back or skip a screen.
         </p>
       </Card>
 
       <div className="grid g2">
-        <Card title="iPhone vs Android" src="Share of first opens reaching each step">
+        <Card title="iPhone vs Android" src="Share of new users reaching each step" csv>
           <div className="tbl">
             <table>
               <thead>
@@ -64,7 +74,7 @@ export default async function Funnel({ searchParams }: { searchParams: Promise<{
           </div>
         </Card>
 
-        <Card title="Sign-up method" src="Started vs finished">
+        <Card title="Sign-up method" src="Started vs finished" csv>
           <div className="tbl">
             <table>
               <thead>
@@ -90,7 +100,7 @@ export default async function Funnel({ searchParams }: { searchParams: Promise<{
         </Card>
       </div>
 
-      <Card title="Paywalls" src="Where the paywall is shown and what people do next">
+      <Card title="Paywalls" src="Where the paywall is shown and what people do next" csv>
         <div className="tbl">
           <table>
             <thead>

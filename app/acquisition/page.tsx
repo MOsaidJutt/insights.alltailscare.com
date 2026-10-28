@@ -1,59 +1,90 @@
-import { Card, Head, Shell } from "@/components/Shell";
+import Link from "next/link";
+import { Card, Head, Shell, osLabel } from "@/components/Shell";
 import { Stack } from "@/components/charts";
-import { getAcquisition } from "@/lib/queries";
-import { PERIODS, periodFrom } from "@/lib/periods";
+import { byChannel, getAcquisition } from "@/lib/queries";
+import { CHANNEL_NOTES } from "@/lib/channels";
+import { PERIODS, readParams, type SearchParams } from "@/lib/periods";
 import { fmtN, fmtPct, share } from "@/lib/format";
 
-function sourceName(source: string, medium: string) {
-  if (source === "Apple" && medium === "search") return "Apple Search Ads";
-  if (source === "google-play" && medium === "organic") return "Google Play organic";
-  if (source === "(direct)") return "Direct / App Store organic";
-  if (source === "(not set)") return "Unknown";
-  return medium && medium !== "(none)" && medium !== "(not set)" ? `${source} / ${medium}` : source;
+const rate = (part: number, whole: number) => (whole ? fmtPct(share(part, whole), 0) : "–");
+
+function campaignName(c: { source: string; medium: string; campaign: string }) {
+  if (c.source === "Apple" && c.medium === "search") return `Apple Ads campaign ${c.campaign}`;
+  const camp = c.campaign && !c.campaign.startsWith("(") ? ` · ${c.campaign}` : "";
+  return `${c.source} / ${c.medium}${camp}`;
 }
 
-export default async function Acquisition({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const period = periodFrom((await searchParams).p);
+export default async function Acquisition({ searchParams }: { searchParams: SearchParams }) {
+  const { period, os } = await readParams(searchParams);
   const P = PERIODS[period];
-  const rows = (await getAcquisition(period)).filter((r) => r.newUsers > 0 || r.active > 0);
-  const top = [...rows].sort((a, b) => b.newUsers - a.newUsers);
-  const parts = top.slice(0, 5).map((r) => ({ label: sourceName(r.source, r.medium), value: r.newUsers }));
-  const rest = top.slice(5).reduce((a, r) => a + r.newUsers, 0);
-  if (rest > 0) parts.push({ label: "Everything else", value: rest });
+  const rows = (await getAcquisition(period, os)).filter((r) => r.newUsers > 0 || r.active > 0);
+  const channels = byChannel(rows);
+  const campaigns = [...rows].sort((a, b) => b.newUsers - a.newUsers);
 
   return (
-    <Shell active="/acquisition" period={period}>
-      <Head eyebrow={P.span} title="Where new users come from" />
+    <Shell active="/acquisition" period={period} os={os}>
+      <Head eyebrow={`${P.span}${osLabel(os)}`} title="Where new users come from">
+        <Link href="/links" className="src">Create a tracked link for a new channel →</Link>
+      </Head>
 
-      <Card title="Share of new users" src="Google Analytics · first user source">
-        {parts.length ? <Stack parts={parts} /> : <p className="empty">No new users in this period.</p>}
+      <Card title="Share of new users by channel" src="Google Analytics · first user source">
+        {channels.length ? (
+          <Stack parts={channels.map((c) => ({ label: c.channel, value: c.newUsers }))} />
+        ) : (
+          <p className="empty">No new users in this period.</p>
+        )}
       </Card>
 
-      <Card title="Quality of users by source" src="Do they reach the paywall and create an account?">
+      <Card title="Channels" src="Do new users reach the paywall and create an account?" csv>
         <div className="tbl">
           <table>
             <thead>
-              <tr><th>Source</th><th>New users</th><th>Active users</th><th>Reached paywall</th><th>Created account</th></tr>
+              <tr><th>Channel</th><th>New users</th><th>Share</th><th>Reached paywall</th><th>Created account</th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.source}|${r.medium}`}>
-                  <td>{sourceName(r.source, r.medium)}</td>
-                  <td>{fmtN(r.newUsers)}</td>
-                  <td>{fmtN(r.active)}</td>
-                  <td>{r.opened ? fmtPct(share(r.paywall, r.opened), 0) : "–"}</td>
-                  <td>{r.opened ? fmtPct(share(r.signups, r.opened), 0) : "–"}</td>
+              {channels.map((c) => (
+                <tr key={c.channel}>
+                  <td>
+                    {c.channel}
+                    {CHANNEL_NOTES[c.channel] && <><br /><small className="muted">{CHANNEL_NOTES[c.channel]}</small></>}
+                  </td>
+                  <td>{fmtN(c.newUsers)}</td>
+                  <td>{rate(c.newUsers, channels.reduce((a, x) => a + x.newUsers, 0))}</td>
+                  <td>{rate(c.paywall, c.opened)}</td>
+                  <td>{rate(c.signups, c.opened)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="note">
-          <b>Apple Search Ads</b> installs are identified by Apple’s ad attribution. Other iPhone installs show as{" "}
-          <b>Direct</b>, because Google Analytics can’t tell App Store search from browsing. That split, plus ad spend and cost
-          per install, comes from App Store Connect and Apple Ads in a later milestone. Percentages are out of people who opened
-          the app for the first time.
+          TikTok, Meta, AppLovin and partner rows appear automatically once people install through a{" "}
+          <Link href="/links">tracked link</Link>. Paid networks report most accurately through a mobile attribution tool
+          (such as AppsFlyer, Adjust or Branch), which can be connected later.
         </p>
+      </Card>
+
+      <Card title="Campaigns and sources" src="Every source GA recorded" csv>
+        <div className="tbl">
+          <table>
+            <thead>
+              <tr><th>Source</th><th>Channel</th><th>New users</th><th>Active users</th><th>Reached paywall</th><th>Created account</th></tr>
+            </thead>
+            <tbody>
+              {campaigns.map((r) => (
+                <tr key={`${r.source}|${r.medium}|${r.campaign}`}>
+                  <td>{campaignName(r)}</td>
+                  <td className="muted">{r.channel}</td>
+                  <td>{fmtN(r.newUsers)}</td>
+                  <td>{fmtN(r.active)}</td>
+                  <td>{rate(r.paywall, r.opened)}</td>
+                  <td>{rate(r.signups, r.opened)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="note">Apple Ads campaigns show as numbers for now. Their names come through when Apple Ads is connected.</p>
       </Card>
     </Shell>
   );

@@ -1,22 +1,40 @@
 import { runReport, type Report } from "./ga";
-import { PERIODS, ymd, type PeriodKey, type Range } from "./periods";
-import { FEATURES, ONBOARDING_FUNNEL, PAYWALL_PLACEMENTS, SIGNUP_COMPLETED, SIGNUP_METHODS } from "./events";
+import { PERIODS, concreteDate, ptToday, ymd, type Os, type PeriodKey, type Range } from "./periods";
+import { FEATURES, ONBOARDING_FUNNEL, PAYWALL_PLACEMENTS, SIGNUP_COMPLETED, SIGNUP_METHODS, type Step } from "./events";
+import { channelOf, type Channel } from "./channels";
+
+type Filter = Record<string, unknown>;
 
 const names = (...n: string[]) => n.map((name) => ({ name }));
-const inList = (values: string[]) => ({ filter: { fieldName: "eventName", inListFilter: { values } } });
-const beginsWith = (value: string) => ({
+const exact = (fieldName: string, value: string): Filter => ({
+  filter: { fieldName, stringFilter: { matchType: "EXACT", value } },
+});
+const inList = (values: string[]): Filter => ({ filter: { fieldName: "eventName", inListFilter: { values } } });
+const beginsWith = (value: string): Filter => ({
   filter: { fieldName: "eventName", stringFilter: { matchType: "BEGINS_WITH", value } },
 });
+const stepFilter = (s: Step): Filter =>
+  s.prefixes ? { orGroup: { expressions: s.prefixes.map(beginsWith) } } : inList(s.events ?? []);
+
+// Adds the iOS / Android filter to any report filter.
+function scope(os: Os, f?: Filter): Filter | undefined {
+  const parts = [f, os === "all" ? undefined : exact("platform", os === "ios" ? "iOS" : "Android")].filter(
+    (x): x is Filter => Boolean(x),
+  );
+  if (!parts.length) return undefined;
+  return parts.length === 1 ? parts[0] : { andGroup: { expressions: parts } };
+}
 
 /* ---------- Growth ---------- */
 
 // GA returns inflated user counts when several date ranges share one request,
 // so each period gets its own query. Stickiness = average daily users ÷ users in the 30 days to the period end.
-async function periodKpis(range: Range, monthEnding: Range) {
+async function periodKpis(range: Range, monthEnding: Range, os: Os) {
+  const dimensionFilter = scope(os);
   const [totals, daily, month] = await Promise.all([
-    runReport({ dateRanges: [range], metrics: names("activeUsers", "newUsers", "sessions", "userEngagementDuration") }),
-    runReport({ dateRanges: [range], dimensions: names("date"), metrics: names("activeUsers"), limit: 100 }),
-    runReport({ dateRanges: [monthEnding], metrics: names("activeUsers") }),
+    runReport({ dateRanges: [range], metrics: names("activeUsers", "newUsers", "sessions", "userEngagementDuration"), dimensionFilter }),
+    runReport({ dateRanges: [range], dimensions: names("date"), metrics: names("activeUsers"), dimensionFilter, limit: 100 }),
+    runReport({ dateRanges: [monthEnding], metrics: names("activeUsers"), dimensionFilter }),
   ]);
   const [active = 0, newUsers = 0, sessions = 0, engagement = 0] = totals.rows[0]?.m ?? [];
   const avgDaily = daily.rows.length ? daily.rows.reduce((a, r) => a + r.m[0], 0) / daily.rows.length : 0;
@@ -32,19 +50,20 @@ async function periodKpis(range: Range, monthEnding: Range) {
   };
 }
 
-export async function getGrowth(p: PeriodKey) {
+export async function getGrowth(p: PeriodKey, os: Os) {
   const P = PERIODS[p];
   const [cur, prev, series, platform] = await Promise.all([
-    periodKpis(P.cur, { startDate: "30daysAgo", endDate: P.cur.endDate }),
-    periodKpis(P.prev, { startDate: `${Number(P.prev.endDate.replace(/\D/g, "")) + 29}daysAgo`, endDate: P.prev.endDate }),
+    periodKpis(P.cur, { startDate: "30daysAgo", endDate: P.cur.endDate }, os),
+    periodKpis(P.prev, { startDate: `${Number(P.prev.endDate.replace(/\D/g, "")) + 29}daysAgo`, endDate: P.prev.endDate }, os),
     runReport({
       dateRanges: [{ startDate: P.seriesStart, endDate: "yesterday" }],
       dimensions: names(P.seriesDim),
       metrics: names("activeUsers", "newUsers", "sessions"),
+      dimensionFilter: scope(os),
       orderBys: [{ dimension: { dimensionName: P.seriesDim } }],
       limit: 400,
     }),
-    runReport({ dateRanges: [P.cur], dimensions: names("platform"), metrics: names("activeUsers") }),
+    runReport({ dateRanges: [P.cur], dimensions: names("platform"), metrics: names("activeUsers"), dimensionFilter: scope(os) }),
   ]);
   return {
     cur,
@@ -56,48 +75,47 @@ export async function getGrowth(p: PeriodKey) {
 
 /* ---------- Funnel ---------- */
 
-export type FunnelStep = { label: string; events: string[]; total: number; ios: number; android: number };
+export type FunnelStep = Step & { total: number; ios: number; android: number };
 
-export async function getFunnel(p: PeriodKey): Promise<FunnelStep[]> {
+// New-user funnel: only people whose first session falls inside the period, so
+// "Reached home" isn't inflated by existing users.
+export async function getFunnel(p: PeriodKey, os: Os): Promise<FunnelStep[]> {
   const P = PERIODS[p];
+  const from = concreteDate(P.cur.startDate);
+  const to = concreteDate(P.cur.endDate);
   const reports = await Promise.all(
     ONBOARDING_FUNNEL.map((s) =>
       runReport({
         dateRanges: [P.cur],
-        dimensions: names("platform"),
+        dimensions: names("platform", "firstSessionDate"),
         metrics: names("totalUsers"),
-        dimensionFilter: inList(s.events),
-        metricAggregations: ["TOTAL"],
+        dimensionFilter: scope(os, stepFilter(s)),
+        limit: 1000,
       }),
     ),
   );
   return ONBOARDING_FUNNEL.map((s, i) => {
-    const r = reports[i];
-    const on = (platform: string) => r.rows.find((x) => x.d[0] === platform)?.m[0] ?? 0;
-    return {
-      label: s.label,
-      events: s.events,
-      total: r.totals?.[0] ?? r.rows.reduce((a, x) => a + x.m[0], 0),
-      ios: on("iOS"),
-      android: on("Android"),
-    };
+    const rows = reports[i].rows.filter((r) => r.d[1] >= from && r.d[1] <= to);
+    const on = (platform: string) => rows.filter((x) => x.d[0] === platform).reduce((a, x) => a + x.m[0], 0);
+    return { ...s, total: rows.reduce((a, x) => a + x.m[0], 0), ios: on("iOS"), android: on("Android") };
   });
 }
 
 export type EventStat = { name: string; count: number; users: number };
 
-export async function getEvents(range: Range): Promise<EventStat[]> {
+export async function getEvents(range: Range, os: Os): Promise<EventStat[]> {
   const r = await runReport({
     dateRanges: [range],
     dimensions: names("eventName"),
     metrics: names("eventCount", "totalUsers"),
+    dimensionFilter: scope(os),
     limit: 1000,
   });
   return r.rows.map((x) => ({ name: x.d[0], count: x.m[0], users: x.m[1] }));
 }
 
-export async function getConversion(p: PeriodKey) {
-  const events = await getEvents(PERIODS[p].cur);
+export async function getConversion(p: PeriodKey, os: Os) {
+  const events = await getEvents(PERIODS[p].cur, os);
   const sum = (test: (n: string) => boolean, field: "users" | "count" = "users") =>
     events.filter((e) => test(e.name)).reduce((a, e) => a + e[field], 0);
 
@@ -124,47 +142,83 @@ export async function getConversion(p: PeriodKey) {
 
 /* ---------- Acquisition ---------- */
 
-export async function getAcquisition(p: PeriodKey) {
+export type SourceRow = {
+  source: string;
+  medium: string;
+  campaign: string;
+  channel: Channel;
+  newUsers: number;
+  active: number;
+  opened: number;
+  paywall: number;
+  signups: number;
+};
+
+export async function getAcquisition(p: PeriodKey, os: Os): Promise<SourceRow[]> {
   const P = PERIODS[p];
+  const dims = names("firstUserSource", "firstUserMedium", "firstUserCampaignName");
   const [sources, quality] = await Promise.all([
     runReport({
       dateRanges: [P.cur],
-      dimensions: names("firstUserSource", "firstUserMedium"),
+      dimensions: dims,
       metrics: names("newUsers", "activeUsers"),
+      dimensionFilter: scope(os),
       orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
-      limit: 25,
+      limit: 100,
     }),
     runReport({
       dateRanges: [P.cur],
-      dimensions: names("firstUserSource", "eventName"),
+      dimensions: [...dims, { name: "eventName" }],
       metrics: names("totalUsers"),
-      dimensionFilter: inList(["first_open", "paywall_viewed_onboarding", ...SIGNUP_COMPLETED]),
-      limit: 1000,
+      dimensionFilter: scope(os, inList(["first_open", "paywall_viewed_onboarding", ...SIGNUP_COMPLETED])),
+      limit: 2000,
     }),
   ]);
-  const q = (source: string, test: (e: string) => boolean) =>
-    quality.rows.filter((r) => r.d[0] === source && test(r.d[1])).reduce((a, r) => a + r.m[0], 0);
-  return sources.rows.map((r) => ({
-    source: r.d[0],
-    medium: r.d[1],
-    newUsers: r.m[0],
-    active: r.m[1],
-    opened: q(r.d[0], (e) => e === "first_open"),
-    paywall: q(r.d[0], (e) => e === "paywall_viewed_onboarding"),
-    signups: q(r.d[0], (e) => SIGNUP_COMPLETED.includes(e)),
-  }));
+  const key = (d: string[]) => `${d[0]}|${d[1]}|${d[2]}`;
+  const q = (k: string, test: (e: string) => boolean) =>
+    quality.rows.filter((r) => key(r.d) === k && test(r.d[3])).reduce((a, r) => a + r.m[0], 0);
+  return sources.rows.map((r) => {
+    const k = key(r.d);
+    return {
+      source: r.d[0],
+      medium: r.d[1],
+      campaign: r.d[2],
+      channel: channelOf(r.d[0], r.d[1]),
+      newUsers: r.m[0],
+      active: r.m[1],
+      opened: q(k, (e) => e === "first_open"),
+      paywall: q(k, (e) => e === "paywall_viewed_onboarding"),
+      signups: q(k, (e) => SIGNUP_COMPLETED.includes(e)),
+    };
+  });
+}
+
+export type ChannelRow = Omit<SourceRow, "source" | "medium" | "campaign"> & { campaigns: SourceRow[] };
+
+export function byChannel(rows: SourceRow[]): ChannelRow[] {
+  const map = new Map<Channel, ChannelRow>();
+  for (const r of rows) {
+    const c = map.get(r.channel) ?? { channel: r.channel, newUsers: 0, active: 0, opened: 0, paywall: 0, signups: 0, campaigns: [] };
+    c.newUsers += r.newUsers;
+    c.active += r.active;
+    c.opened += r.opened;
+    c.paywall += r.paywall;
+    c.signups += r.signups;
+    c.campaigns.push(r);
+    map.set(r.channel, c);
+  }
+  return [...map.values()].sort((a, b) => b.newUsers - a.newUsers);
 }
 
 /* ---------- Retention ---------- */
 
 export type Cohort = { start: Date; end: Date; size: number; weeks: (number | null)[] };
 
-export async function getRetention(): Promise<Cohort[]> {
+export async function getRetention(os: Os): Promise<Cohort[]> {
   const WEEKS = 6;
   const day = 86_400_000;
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  // Last fully finished Sunday–Saturday week.
+  const today = ptToday();
+  // Last fully finished Sunday–Saturday week, Pacific time.
   let lastSat = new Date(today.getTime() - day);
   while (lastSat.getUTCDay() !== 6) lastSat = new Date(lastSat.getTime() - day);
 
@@ -176,6 +230,7 @@ export async function getRetention(): Promise<Cohort[]> {
   const r = await runReport({
     dimensions: names("cohort", "cohortNthWeek"),
     metrics: names("cohortActiveUsers"),
+    dimensionFilter: scope(os),
     cohortSpec: {
       cohorts: cohorts.map((c) => ({
         name: c.name,
@@ -188,8 +243,7 @@ export async function getRetention(): Promise<Cohort[]> {
   });
 
   return cohorts.map((c) => {
-    const val = (n: number) =>
-      r.rows.find((x) => x.d[0] === c.name && +x.d[1] === n)?.m[0] ?? 0;
+    const val = (n: number) => r.rows.find((x) => x.d[0] === c.name && +x.d[1] === n)?.m[0] ?? 0;
     const size = val(0);
     const weeks = Array.from({ length: WEEKS }, (_, n) => {
       // Week n runs from end+1+(n-1)*7 to end+n*7 days; it's complete once that last day is before today.
@@ -202,16 +256,16 @@ export async function getRetention(): Promise<Cohort[]> {
 
 /* ---------- Engagement ---------- */
 
-export async function getEngagement(p: PeriodKey) {
+export async function getEngagement(p: PeriodKey, os: Os) {
   const P = PERIODS[p];
   const [active, events, ...features] = await Promise.all([
-    runReport({ dateRanges: [P.cur], metrics: names("activeUsers") }),
-    getEvents(P.cur),
+    runReport({ dateRanges: [P.cur], metrics: names("activeUsers"), dimensionFilter: scope(os) }),
+    getEvents(P.cur, os),
     ...FEATURES.map((f) =>
       runReport({
         dateRanges: [P.cur],
         metrics: names("totalUsers", "eventCount"),
-        dimensionFilter: f.prefix ? beginsWith(f.prefix) : inList(f.events ?? []),
+        dimensionFilter: scope(os, f.prefix ? beginsWith(f.prefix) : inList(f.events ?? [])),
       }),
     ),
   ]);
@@ -228,29 +282,28 @@ export async function getEngagement(p: PeriodKey) {
 
 /* ---------- Audience ---------- */
 
-export async function getAudience(p: PeriodKey) {
+export async function getAudience(p: PeriodKey, os: Os) {
   const P = PERIODS[p];
   const dim = (name: string, limit: number) =>
     runReport({
       dateRanges: [P.cur],
       dimensions: names(name),
       metrics: names("activeUsers", "newUsers"),
+      dimensionFilter: scope(os),
       orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }],
       limit,
     });
-  const [platform, country, version, device, removed] = await Promise.all([
+  const [platform, country, version, removed] = await Promise.all([
     dim("platform", 5),
     dim("country", 12),
     dim("appVersion", 8),
-    dim("deviceCategory", 5),
-    runReport({ dateRanges: [P.cur], metrics: names("totalUsers"), dimensionFilter: inList(["app_remove"]) }),
+    runReport({ dateRanges: [P.cur], metrics: names("totalUsers"), dimensionFilter: scope(os, inList(["app_remove"])) }),
   ]);
   const rows = (r: Report) => r.rows.map((x) => ({ name: x.d[0], active: x.m[0], new: x.m[1] }));
   return {
     platform: rows(platform),
     country: rows(country),
     version: rows(version),
-    device: rows(device),
     androidUninstalls: removed.rows[0]?.m[0] ?? 0,
   };
 }

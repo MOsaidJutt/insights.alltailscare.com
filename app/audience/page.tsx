@@ -1,7 +1,7 @@
-import { Card, Head, Shell } from "@/components/Shell";
+import { Card, Head, Shell, osLabel } from "@/components/Shell";
 import { Bar, Kpi, Stack } from "@/components/charts";
 import { getAudience } from "@/lib/queries";
-import { PERIODS, periodFrom } from "@/lib/periods";
+import { PERIODS, readParams, type SearchParams } from "@/lib/periods";
 import { fmtN, fmtPct, share } from "@/lib/format";
 
 type Row = { name: string; active: number; new: number };
@@ -30,15 +30,15 @@ function Table({ rows, label }: { rows: Row[]; label: string }) {
   );
 }
 
-export default async function Audience({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const period = periodFrom((await searchParams).p);
+export default async function Audience({ searchParams }: { searchParams: SearchParams }) {
+  const { period, os } = await readParams(searchParams);
   const P = PERIODS[period];
-  const a = await getAudience(period);
+  const a = await getAudience(period, os);
   const androidNew = a.platform.find((p) => p.name === "Android")?.new ?? 0;
 
   return (
-    <Shell active="/audience" period={period}>
-      <Head eyebrow={P.span} title="Who your users are" />
+    <Shell active="/audience" period={period} os={os}>
+      <Head eyebrow={`${P.span}${osLabel(os)}`} title="Who your users are" />
 
       <div className="grid g2">
         <Card title="Platform" src="Active users">
@@ -51,10 +51,10 @@ export default async function Audience({ searchParams }: { searchParams: Promise
       </div>
 
       <div className="grid g2">
-        <Card title="Countries" src="Google Analytics">
+        <Card title="Countries" src="Google Analytics" csv>
           <Table rows={a.country} label="Country" />
         </Card>
-        <Card title="App versions in use" src="Google Analytics">
+        <Card title="App versions in use" src="Google Analytics" csv>
           <Table rows={a.version} label="Version" />
           <p className="note">Useful after a release, to check that most users have updated and new tracking is arriving.</p>
         </Card>
