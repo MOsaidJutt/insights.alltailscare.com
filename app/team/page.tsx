@@ -1,9 +1,10 @@
-import { headers } from "next/headers";
 import { Card, Head, Shell } from "@/components/Shell";
 import { ConfirmButton, CopyField } from "@/components/Tools";
 import { db, type Row } from "@/lib/db";
+import { APP_URL } from "@/lib/email";
 import { ROLE_HELP, ROLE_LABEL, requireUser, type Role } from "@/lib/users";
-import { changeRole, createInvite, removeUser, revokeInvite } from "./actions";
+import { changeAccess, removeUser, revokeInvite } from "./actions";
+import { SECTIONS, describeSections } from "@/lib/sections";
 
 const ERRORS: Record<string, string> = {
   email: "Enter a valid email address.",
@@ -22,13 +23,11 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
   const { e, invited, emailed } = await searchParams;
   const sql = await db();
   const [users, invites, log] = (await Promise.all([
-    sql`SELECT id, email, name, role, last_login_at FROM users ORDER BY (role = 'owner') DESC, (role = 'admin') DESC, email`,
-    sql`SELECT token, email, role, created_by, expires_at FROM invites WHERE accepted_at IS NULL AND expires_at > now() ORDER BY created_at DESC`,
+    sql`SELECT id, email, name, role, sections, last_login_at FROM users ORDER BY (role = 'owner') DESC, (role = 'admin') DESC, email`,
+    sql`SELECT token, email, role, sections, created_by, expires_at FROM invites WHERE accepted_at IS NULL AND expires_at > now() ORDER BY created_at DESC`,
     sql`SELECT at, actor, action, detail FROM audit ORDER BY at DESC LIMIT 50`,
   ])) as Row[][];
-  const h = await headers();
-  const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`;
-  const link = (token: unknown) => `${origin}/invite/${token}`;
+  const link = (token: unknown) => `${APP_URL}/invite/${token}`;
   const newInvite = invited && invites.find((i) => i.token === invited);
 
   return (
@@ -49,7 +48,7 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
 
       <div className="grid g2">
         <Card title="Invite someone">
-          <form action={createInvite} className="invite-form">
+          <form action="/api/team/invite" method="post" className="invite-form">
             <label htmlFor="inv-email">Email address (their Google account)</label>
             <input id="inv-email" name="email" type="email" required placeholder="name@example.com" />
             <label htmlFor="inv-role">Access</label>
@@ -57,6 +56,12 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
               <option value="viewer">Viewer: sees all reports</option>
               <option value="admin">Admin: also manages people and notes</option>
             </select>
+            <fieldset className="sections">
+              <legend>Can see (viewers)</legend>
+              {SECTIONS.map(([path, label]) => (
+                <label key={path}><input type="checkbox" name="sections" value={path} defaultChecked /> {label}</label>
+              ))}
+            </fieldset>
             <button type="submit">Create invite link</button>
           </form>
         </Card>
@@ -80,7 +85,7 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
         <div className="tbl">
           <table>
             <thead>
-              <tr><th>Person</th><th>Access</th><th>Last sign-in</th><th></th></tr>
+              <tr><th>Person</th><th>Access</th><th style={{ textAlign: "left" }}>Can see</th><th>Last sign-in</th><th></th></tr>
             </thead>
             <tbody>
               {users.map((u) => {
@@ -96,15 +101,33 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
                       {locked ? (
                         <span className="pill p-good">{ROLE_LABEL[u.role as Role]}</span>
                       ) : (
-                        <form action={changeRole} className="inline-form">
-                          <input type="hidden" name="id" value={String(u.id)} />
-                          <select name="role" defaultValue={String(u.role)} aria-label={`Access for ${u.email}`}>
-                            <option value="viewer">Viewer</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                          <button type="submit" className="mini-btn">Save</button>
-                        </form>
+                        <details className="access-edit">
+                          <summary className="mini-btn">{ROLE_LABEL[u.role as Role]} · Edit access</summary>
+                          <form action={changeAccess} className="access-pop">
+                            <input type="hidden" name="id" value={String(u.id)} />
+                            <label htmlFor={`role-${u.id}`}>Role</label>
+                            <select id={`role-${u.id}`} name="role" defaultValue={String(u.role)}>
+                              <option value="viewer">Viewer</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                            <fieldset className="sections">
+                              <legend>Can see (viewers)</legend>
+                              {SECTIONS.map(([path, label]) => {
+                                const s = u.sections as string[] | null;
+                                return (
+                                  <label key={path}>
+                                    <input type="checkbox" name="sections" value={path} defaultChecked={!s || s.includes(path)} /> {label}
+                                  </label>
+                                );
+                              })}
+                            </fieldset>
+                            <button type="submit">Save access</button>
+                          </form>
+                        </details>
                       )}
+                    </td>
+                    <td style={{ textAlign: "left", whiteSpace: "normal" }} className="muted">
+                      {u.role === "viewer" ? describeSections(u.sections as string[] | null) : "Everything"}
                     </td>
                     <td className="muted">{when(u.last_login_at)}</td>
                     <td>
@@ -128,13 +151,14 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ e
           <div className="tbl">
             <table>
               <thead>
-                <tr><th>Email</th><th>Access</th><th>Invited by</th><th>Expires</th><th></th></tr>
+                <tr><th>Email</th><th>Access</th><th style={{ textAlign: "left" }}>Can see</th><th>Invited by</th><th>Expires</th><th></th></tr>
               </thead>
               <tbody>
                 {invites.map((i) => (
                   <tr key={String(i.token)}>
                     <td>{String(i.email)}</td>
                     <td>{ROLE_LABEL[i.role as Role]}</td>
+                    <td style={{ textAlign: "left", whiteSpace: "normal" }} className="muted">{describeSections(i.sections as string[] | null)}</td>
                     <td className="muted">{String(i.created_by)}</td>
                     <td className="muted">{when(i.expires_at)}</td>
                     <td className="row-actions">

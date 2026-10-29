@@ -39,13 +39,13 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function LinkBuilder({ providerToken }: { providerToken?: string }) {
+export function LinkBuilder({ providerToken, baseUrl }: { providerToken?: string; baseUrl: string }) {
   const [channel, setChannel] = useState(CHANNELS[3].id);
   const [partner, setPartner] = useState("Happy Paws Rescue");
   const [campaign, setCampaign] = useState("Fall 2026 flyer");
-  const [origin, setOrigin] = useState("");
+  // Links always use the public dashboard domain, wherever the builder is opened.
+  const origin = baseUrl;
   const [qr, setQr] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
 
   const ch = CHANNELS.find((c) => c.id === channel)!;
   const tag: Tag = useMemo(

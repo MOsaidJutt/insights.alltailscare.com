@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { PERIODS, type Os, type PeriodKey } from "@/lib/periods";
 import { CsvButton, PageTools } from "./Tools";
-import { ROLE_LABEL, canManage, requireUser } from "@/lib/users";
+import { redirect } from "next/navigation";
+import { ROLE_LABEL, canManage, canSee, requireUser } from "@/lib/users";
 
 const TABS = [
   ["/", "Overview"],
@@ -44,7 +45,10 @@ export async function Shell({
   children: React.ReactNode;
 }) {
   const me = await requireUser();
-  const tabs: readonly (readonly [string, string])[] = canManage(me) ? [...TABS, ["/reports", "Reports"], ["/team", "Team"]] : TABS;
+  const visible = TABS.filter(([path]) => canSee(me, path));
+  // Viewers limited to certain sections are sent to the first one they can see.
+  if (!canSee(me, active) && visible[0]) redirect(href(visible[0][0], period, os));
+  const tabs: readonly (readonly [string, string])[] = canManage(me) ? [...visible, ["/reports", "Reports"], ["/team", "Team"]] : visible;
   return (
     <>
       <header className="top">

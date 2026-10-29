@@ -32,6 +32,9 @@ async function migrate(sql: Sql) {
     created_by text,
     created_at timestamptz NOT NULL DEFAULT now()
   )`;
+  // Section-level access for viewers (null = everything).
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS sections text[]`;
+  await sql`ALTER TABLE invites ADD COLUMN IF NOT EXISTS sections text[]`;
   await sql`CREATE TABLE IF NOT EXISTS audit (
     id serial PRIMARY KEY,
     at timestamptz NOT NULL DEFAULT now(),

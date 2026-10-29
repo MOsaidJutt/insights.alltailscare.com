@@ -1,6 +1,7 @@
 import { Card, Head, Shell } from "@/components/Shell";
 import { LinkBuilder } from "@/components/LinkBuilder";
 import { readParams, type SearchParams } from "@/lib/periods";
+import { APP_URL } from "@/lib/email";
 
 export default async function Links({ searchParams }: { searchParams: SearchParams }) {
   const { period, os } = await readParams(searchParams);
@@ -11,7 +12,7 @@ export default async function Links({ searchParams }: { searchParams: SearchPara
       <Head eyebrow="Attribution" title="Tracked links and QR codes" />
 
       <Card title="Create a link" src="Use a different link for every ad, partner and campaign">
-        <LinkBuilder providerToken={providerToken} />
+        <LinkBuilder providerToken={providerToken} baseUrl={APP_URL} />
       </Card>
 
       <Card title="How each link is measured">

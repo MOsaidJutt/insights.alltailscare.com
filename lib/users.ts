@@ -4,24 +4,25 @@ import { db, type Row } from "./db";
 import { SESSION_COOKIE, readSession } from "./session";
 
 export type Role = "owner" | "admin" | "viewer";
-export type User = { id: number; email: string; name: string | null; picture: string | null; role: Role };
+export type User = { id: number; email: string; name: string | null; picture: string | null; role: Role; sections: string[] | null };
 
 export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", viewer: "Viewer" };
 export const ROLE_HELP: Record<Role, string> = {
   owner: "Everything, including managing admins. There is one owner.",
-  admin: "Sees all reports, invites and removes people, adds notes.",
-  viewer: "Sees all reports. Can’t change anything.",
+  admin: "Sees all reports, invites and removes people, manages notes and email reports.",
+  viewer: "Sees the reports you choose (all, or specific sections). Can’t change anything.",
 };
 
 const rank = (r: Role) => (r === "owner" ? 3 : r === "admin" ? 2 : 1);
 export const canManage = (u: User) => rank(u.role) >= 2;
+export const canSee = (u: User, path: string) => canManage(u) || !u.sections || u.sections.includes(path);
 export const ownerEmail = () => (process.env.OWNER_EMAIL ?? "anjali@alltailscare.com").toLowerCase();
 
 export async function currentUser(): Promise<User | null> {
   const s = await readSession((await cookies()).get(SESSION_COOKIE)?.value);
   if (!s) return null;
   const sql = await db();
-  const rows = (await sql`SELECT id, email, name, picture, role FROM users WHERE id = ${s.uid}`) as Row[];
+  const rows = (await sql`SELECT id, email, name, picture, role, sections FROM users WHERE id = ${s.uid}`) as Row[];
   return (rows[0] as User | undefined) ?? null;
 }
 
@@ -95,8 +96,8 @@ export async function signInWithGoogle(p: {
   if (invite.accepted_at || new Date(invite.expires_at as string) < new Date()) return { error: "expired" };
 
   const created = (await sql`
-    INSERT INTO users (email, name, picture, role, last_login_at)
-    VALUES (${email}, ${p.name ?? null}, ${p.picture ?? null}, ${invite.role as string}, now())
+    INSERT INTO users (email, name, picture, role, sections, last_login_at)
+    VALUES (${email}, ${p.name ?? null}, ${p.picture ?? null}, ${invite.role as string}, ${(invite.sections as string[] | null) ?? null}, now())
     RETURNING id`) as Row[];
   await sql`UPDATE invites SET accepted_at = now() WHERE token = ${invite.token as string}`;
   await audit(email, "Accepted invite", `${ROLE_LABEL[invite.role as Role]}, invited by ${invite.created_by}`);

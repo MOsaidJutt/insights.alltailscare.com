@@ -16,8 +16,13 @@ export function NavProgress() {
   // Wait briefly so cached views, which load almost instantly, don't flash the dialog.
   useEffect(() => {
     if (!pending) return setVisible(false);
-    const t = setTimeout(() => setVisible(true), 150);
-    return () => clearTimeout(t);
+    const show = setTimeout(() => setVisible(true), 150);
+    // Safety net: never leave the page blocked if a navigation stalls or lands on the same URL.
+    const giveUp = setTimeout(() => setPending(false), 20_000);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(giveUp);
+    };
   }, [pending]);
 
   useEffect(() => {
