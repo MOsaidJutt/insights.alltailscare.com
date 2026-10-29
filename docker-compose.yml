@@ -1,0 +1,21 @@
+# Runs behind the shared Caddy proxy in /opt/edge (site file: insights.alltailscare.com.caddy).
+# No host ports are published here: only /opt/edge owns ports 80 and 443.
+name: alltails-insights
+
+services:
+  web:
+    build: .
+    image: alltails-insights-web
+    container_name: alltails-insights-web
+    restart: unless-stopped
+    env_file: .env.production
+    expose:
+      - "3000"
+    networks:
+      edge:
+        aliases: [alltails-insights-web]
+    mem_limit: 768m
+
+networks:
+  edge:
+    external: true

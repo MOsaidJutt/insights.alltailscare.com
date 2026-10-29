@@ -1,13 +1,36 @@
-// Sends email through Resend's REST API. Everything email-related checks emailEnabled()
-// first, so the dashboard works normally until RESEND_API_KEY is added.
+import nodemailer from "nodemailer";
+
+// Sends email through SMTP (the Google Workspace mailbox, via an app password) or, failing
+// that, Resend's REST API. Everything email-related checks emailEnabled() first, so the
+// dashboard works normally until one of them is configured.
 
 export const APP_URL = process.env.APP_URL ?? "https://insights.alltailscare.com";
-const FROM = process.env.EMAIL_FROM ?? "AllTails Insights <reports@alltailscare.com>";
+const FROM = process.env.EMAIL_FROM ?? "AllTails Care Insights <insights@alltailscare.com>";
 
-export const emailEnabled = () => Boolean(process.env.RESEND_API_KEY);
+const smtpEnabled = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+export const emailEnabled = () => smtpEnabled() || Boolean(process.env.RESEND_API_KEY);
+
+let transport: nodemailer.Transporter | undefined;
+function smtp() {
+  const port = Number(process.env.SMTP_PORT ?? 587);
+  return (transport ??= nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure: port === 465,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  }));
+}
 
 export async function sendEmail(to: string, subject: string, html: string): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!emailEnabled()) return { ok: false, error: "Email isn’t set up yet." };
+  if (smtpEnabled()) {
+    try {
+      await smtp().sendMail({ from: FROM, to, subject, html });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "SMTP send failed" };
+    }
+  }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
