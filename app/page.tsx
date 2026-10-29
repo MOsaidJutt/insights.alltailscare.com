@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Card, Head, Shell, osLabel } from "@/components/Shell";
 import { Bar, Delta, Kpi, LineChart } from "@/components/charts";
 import { byChannel, getAcquisition, getFunnel, getGrowth } from "@/lib/queries";
-import { PERIODS, readParams, seriesLabel, type SearchParams } from "@/lib/periods";
+import { PERIODS, bucketKey, readParams, seriesLabel, type SearchParams } from "@/lib/periods";
+import { getNotes } from "@/lib/notes";
 import { change, fmtDur, fmtN, fmtPct, share } from "@/lib/format";
 
 const trend = (v: number) => (Math.abs(v) < 0.5 ? "about the same as" : `${v > 0 ? "up" : "down"} ${Math.abs(v).toFixed(0)}%`);
@@ -10,7 +11,12 @@ const trend = (v: number) => (Math.abs(v) < 0.5 ? "about the same as" : `${v > 0
 export default async function Overview({ searchParams }: { searchParams: SearchParams }) {
   const { period, os } = await readParams(searchParams);
   const P = PERIODS[period];
-  const [g, funnel, sources] = await Promise.all([getGrowth(period, os), getFunnel(period, os), getAcquisition(period, os)]);
+  const [g, funnel, sources, notes] = await Promise.all([
+    getGrowth(period, os),
+    getFunnel(period, os),
+    getAcquisition(period, os),
+    getNotes(),
+  ]);
   const { cur, prev } = g;
   const channels = byChannel(sources);
   const totalNew = channels.reduce((a, c) => a + c.newUsers, 0);
@@ -35,6 +41,12 @@ export default async function Overview({ searchParams }: { searchParams: SearchP
   ].filter(Boolean) as string[];
 
   const labels = g.series.map((s) => seriesLabel(P.seriesDim, s.key));
+  const keys = g.series.map((s) => s.key);
+  const shownNotes = notes.filter((n) => keys.includes(bucketKey(P.seriesDim, n.date)));
+  const marks = shownNotes.map((n) => ({
+    i: keys.indexOf(bucketKey(P.seriesDim, n.date)),
+    text: `${n.date.slice(4, 6)}/${n.date.slice(6)}: ${n.text}`,
+  }));
   const q = (path: string) => `${path}${period !== "monthly" || os !== "all" ? `?${new URLSearchParams({ ...(period !== "monthly" && { p: period }), ...(os !== "all" && { os }) })}` : ""}`;
 
   return (
@@ -120,6 +132,7 @@ export default async function Overview({ searchParams }: { searchParams: SearchP
           <LineChart
             labels={labels}
             format={fmtN}
+            marks={marks}
             series={[
               { name: "Active users", values: g.series.map((s) => s.active), color: "--accent" },
               { name: "New users", values: g.series.map((s) => s.new), color: "--c2" },
@@ -127,9 +140,21 @@ export default async function Overview({ searchParams }: { searchParams: SearchP
           />
         </Card>
         <Card title="Sessions" src="Google Analytics">
-          <LineChart labels={labels} format={fmtN} series={[{ name: "Sessions", values: g.series.map((s) => s.sessions), color: "--accent-2" }]} />
+          <LineChart labels={labels} format={fmtN} marks={marks} series={[{ name: "Sessions", values: g.series.map((s) => s.sessions), color: "--accent-2" }]} />
         </Card>
       </div>
+
+      {shownNotes.length > 0 && (
+        <Card title="Notes in this period" src="Orange markers on the charts">
+          <ul className="note-list">
+            {shownNotes.map((n) => (
+              <li key={n.id}>
+                <b>{n.date.slice(4, 6)}/{n.date.slice(6)}</b> {n.text} <span className="muted">· {n.by}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </Shell>
   );
 }

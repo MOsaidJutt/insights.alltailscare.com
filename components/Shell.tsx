@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PERIODS, type Os, type PeriodKey } from "@/lib/periods";
 import { CsvButton, PageTools } from "./Tools";
+import { ROLE_LABEL, canManage, requireUser } from "@/lib/users";
 
 const TABS = [
   ["/", "Overview"],
@@ -10,6 +11,7 @@ const TABS = [
   ["/engagement", "Engagement"],
   ["/audience", "Audience"],
   ["/links", "Tracked links"],
+  ["/notes", "Notes"],
 ] as const;
 
 const PLATFORMS: [Os, string][] = [
@@ -26,7 +28,7 @@ function href(path: string, period: PeriodKey, os: Os) {
   return s ? `${path}?${s}` : path;
 }
 
-export function Shell({
+export async function Shell({
   active,
   period,
   os = "all",
@@ -41,6 +43,8 @@ export function Shell({
   showPlatform?: boolean;
   children: React.ReactNode;
 }) {
+  const me = await requireUser();
+  const tabs: readonly (readonly [string, string])[] = canManage(me) ? [...TABS, ["/reports", "Reports"], ["/team", "Team"]] : TABS;
   return (
     <>
       <header className="top">
@@ -80,11 +84,29 @@ export function Shell({
               </nav>
             )}
             <PageTools />
+            <details className="user-menu">
+              <summary aria-label="Account">
+                {me.picture ? (
+                  <img src={me.picture} alt="" width={30} height={30} referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="avatar">{(me.name ?? me.email)[0].toUpperCase()}</span>
+                )}
+              </summary>
+              <div className="user-pop">
+                <b>{me.name ?? me.email}</b>
+                <span className="muted">{me.email}</span>
+                <span className="pill p-good">{ROLE_LABEL[me.role]}</span>
+                {canManage(me) && <Link href="/team">Manage team</Link>}
+                <form action="/api/auth/logout" method="post">
+                  <button type="submit" className="mini-btn">Sign out</button>
+                </form>
+              </div>
+            </details>
           </div>
         </div>
         <div className="wrap tabs-scroll">
           <nav className="tabs" aria-label="Sections">
-            {TABS.map(([path, label]) => (
+            {tabs.map(([path, label]) => (
               <Link key={path} href={href(path, period, os)} aria-current={path === active ? "page" : undefined}>
                 {label}
               </Link>

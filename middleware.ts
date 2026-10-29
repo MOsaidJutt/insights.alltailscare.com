@@ -1,17 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_COOKIE, authToken } from "./lib/auth";
+import { SESSION_COOKIE, readSession } from "./lib/session";
 
+// Only checks that the session cookie is genuine and unexpired.
+// Pages then confirm the person is still a member and read their role from the database.
 export async function middleware(req: NextRequest) {
-  const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) {
-    return process.env.NODE_ENV === "production"
-      ? new NextResponse("DASHBOARD_PASSWORD is not set.", { status: 500 })
-      : NextResponse.next();
-  }
-  if (req.cookies.get(AUTH_COOKIE)?.value === (await authToken(password))) return NextResponse.next();
+  if (await readSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
   return NextResponse.redirect(new URL("/login", req.url));
 }
 
 export const config = {
-  matcher: ["/((?!login|go|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!login|go|invite|api/auth|api/cron|_next/static|_next/image|favicon.ico).*)"],
 };

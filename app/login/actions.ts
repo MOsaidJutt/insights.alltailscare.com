@@ -2,17 +2,14 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AUTH_COOKIE, authToken } from "@/lib/auth";
+import { SESSION_COOKIE, SESSION_DAYS, cookieOptions, signSession } from "@/lib/session";
+import { signInOwnerWithPassword } from "@/lib/users";
 
+// Owner fallback: the dashboard password signs in as the owner account.
 export async function login(form: FormData) {
   const password = String(form.get("password") ?? "");
-  if (!process.env.DASHBOARD_PASSWORD || password !== process.env.DASHBOARD_PASSWORD) redirect("/login?e=1");
-  (await cookies()).set(AUTH_COOKIE, await authToken(password), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30,
-    path: "/",
-  });
+  if (!process.env.DASHBOARD_PASSWORD || password !== process.env.DASHBOARD_PASSWORD) redirect("/login?e=password");
+  const id = await signInOwnerWithPassword();
+  (await cookies()).set(SESSION_COOKIE, await signSession(id), cookieOptions(SESSION_DAYS * 86_400));
   redirect("/");
 }

@@ -5,7 +5,8 @@ User growth and funnel dashboard for AllTails Care, built on the Google Analytic
 - **Stack:** Next.js 15 (App Router, server components), no database. GA results are cached for 1 hour.
 - **Pages:** User growth · Funnel · Where users come from · Retention · Engagement · Audience
 - **Periods:** Daily (yesterday), Weekly (last 7 days), Monthly (last 30 days), each compared with the period before.
-- **Login:** a single password (`DASHBOARD_PASSWORD`), stored as a signed cookie for 30 days.
+- **Login:** Sign in with Google for invited team members (Owner / Admin / Viewer roles). The owner can also use `DASHBOARD_PASSWORD`.
+- **Team, Notes, Reports:** invite people, change roles, change history; chart notes; scheduled email reports (Resend).
 
 ## Run locally
 
@@ -21,7 +22,13 @@ npm run dev        # http://localhost:3000
 | `GA4_PROPERTY_ID` | GA4 property (458080625) |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Service account key JSON on one line (`alltails-insights@alltails-care-f310d…`) with Viewer access to the GA4 property |
 | `DASHBOARD_PASSWORD` | Password for the login page |
-| `AUTH_SECRET` | Any long random string |
+| `AUTH_SECRET` | Any long random string (signs session cookies) |
+| `DATABASE_URL` | Neon Postgres (added automatically by the Vercel Neon integration). Tables are created on first use |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth web client. Redirect URI: `https://insights.alltailscare.com/api/auth/callback/google` |
+| `OWNER_EMAIL` | The owner account (anjali@alltailscare.com) |
+| `CRON_SECRET` | Protects the daily report job (`/api/cron/reports`, scheduled in `vercel.json`) |
+| `RESEND_API_KEY` | Turns email on (invites, reports, shared links). Leave unset until the Resend DNS records are verified |
+| `EMAIL_FROM` | Optional. Defaults to `AllTails Insights <reports@alltailscare.com>` |
 
 ## Deploy to Vercel
 

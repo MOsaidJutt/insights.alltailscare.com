@@ -15,16 +15,18 @@ export function LineChart({
   format,
   min = 0,
   area = true,
+  marks = [],
 }: {
   series: Series[];
   labels: string[];
   format: (v: number) => string;
   min?: number;
   area?: boolean;
+  marks?: { i: number; text: string }[];
 }) {
   const n = labels.length;
   if (n < 2) return <p className="empty">Not enough data for a trend yet.</p>;
-  const W = 640, H = 230, pl = 48, pr = 14, pt = 12, pb = 28;
+  const W = 640, H = 230, pl = 48, pr = 14, pt = marks.length ? 22 : 12, pb = 28;
   const max = niceMax(Math.max(...series.flatMap((s) => s.values)) * 1.05);
   const X = (i: number) => pl + (i * (W - pl - pr)) / (n - 1);
   const Y = (v: number) => pt + (1 - (v - min) / (max - min)) * (H - pt - pb);
@@ -59,6 +61,14 @@ export function LineChart({
             </text>
           ) : null,
         )}
+        {marks.map((m, k) => (
+          <g key={`m${k}`} className="mark">
+            <line x1={X(m.i)} x2={X(m.i)} y1={pt - 8} y2={H - pb} />
+            <circle cx={X(m.i)} cy={pt - 10} r={5}>
+              <title>{m.text}</title>
+            </circle>
+          </g>
+        ))}
         {series.map((s, si) => {
           const d = s.values.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join("");
           const last = s.values[n - 1];

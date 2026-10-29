@@ -82,6 +82,16 @@ function weekSunday(year: number, week: number): Date {
   return new Date(Math.max(start, jan1.getTime()));
 }
 
+// Maps a YYYYMMDD date to the series bucket key used by each period's chart.
+export function bucketKey(dim: Period["seriesDim"], d: string): string {
+  if (dim === "date") return d;
+  if (dim === "yearMonth") return d.slice(0, 6);
+  const y = +d.slice(0, 4);
+  const jan1 = Date.UTC(y, 0, 1);
+  const doy = (Date.UTC(y, +d.slice(4, 6) - 1, +d.slice(6)) - jan1) / DAY;
+  return `${y}${String(Math.floor((doy + new Date(jan1).getUTCDay()) / 7) + 1).padStart(2, "0")}`;
+}
+
 export function seriesLabel(dim: Period["seriesDim"], key: string): string {
   if (dim === "date") return `${MONTHS[+key.slice(4, 6) - 1]} ${+key.slice(6)}`;
   if (dim === "yearMonth") return MONTHS[+key.slice(4, 6) - 1];
